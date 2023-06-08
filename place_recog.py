@@ -7,6 +7,7 @@ import time
 
 
 
+
 def main():
     imgs_dir = '/home/padfoot7/Desktop/RRC/CLIP_Project/lidar_lseg/data/lego_loam_map2/lego_loam_images_png/'
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -94,4 +95,4 @@ def test():
 
 
 if __name__=='__main__':
-    test_lang()
+    main()
