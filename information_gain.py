@@ -39,6 +39,23 @@ def select_k(feats, k, idxs):
 
     return np.array(idxs)
 
+def select_k_nextsim(feats, k, idxs):
+
+    while len(idxs) > k:
+        feats_current = feats[idxs]
+        IG = []
+        for i in range(len(idxs)):
+            feats_i = feats_current[i]
+            p_i = cosine_similarity(feats_i.reshape(1,-1), feats_current)
+            p_i = p_i.sort()[0]
+            IG.append(1/p_i[-2]) 
+            # IG.append(1/p_i)
+        IG = np.array(IG)
+        least_ig = IG.argmin()
+        idxs.pop(least_ig)
+
+    return np.array(idxs)
+
 def select_1(feats):
     IG = []
     for i in range(len(feats)):
@@ -74,16 +91,55 @@ def get_top_K_info_idxs(idx_start, idx_end, k):
 
     return idxs
 
+def get_top_K_info_nextsim(idx_start, idx_end, k):
+    all_feats = torch.load('data/all_feats.pt')
+    feats_seq = all_feats[idx_start:idx_end]
+
+    idxs = select_k_nextsim(feats_seq, k, list(range(0, idx_end-idx_start)))
+    idxs = idxs+idx_start
+
+    return idxs
+
+def get_total_information(lm_idxs):
+    all_feats = torch.load('data/all_feats.pt')
+    feats_lm = all_feats[lm_idxs]
+
+    similarity = 0
+    for feat in feats_lm:
+        similarity += cosine_similarity(feat.reshape(1,-1), feats_lm).sum()
+    return 1 / similarity, similarity
+
+def get_total_information_nextsim(lm_idxs):
+    all_feats = torch.load('data/all_feats.pt')
+    feats_lm = all_feats[lm_idxs]
+
+    similarity = 0
+    for feat in feats_lm:
+        x = cosine_similarity(feat.reshape(1,-1), feats_lm)
+        x = x.sort()[0]
+        similarity+=x[-2]
+    return 1 / similarity, similarity
+
+
 def main():
-    # idx_start, idx_end = 242, 389
-    # idx_start, idx_end = 707, 840
-    idx_start, idx_end = 0, 100
+
+    idx_start, idx_end = 0, 190
+    k = 20
+    lm_ig = get_top_K_info_nextsim(idx_start, idx_end, k)
+    ti_lm, sim = get_total_information_nextsim(lm_ig)
+    print('Total Info IG, SIM: ', ti_lm, sim)
+
+    lm_eq = np.linspace(idx_start, idx_end-1,k).astype(int)
+    ti_eq , sim= get_total_information_nextsim(lm_eq)
+    print('Total Info EQ, SIM: ', ti_eq, sim)
+
+    lm_rd = np.random.choice(list(range(idx_start, idx_end)), k, replace=False)
+    ti_rd, sim = get_total_information_nextsim(lm_rd)
+    print('Total Info RD, SIM: ', ti_rd, sim)
     
-    idxs = get_top_K_info_idxs(idx_start, idx_end)
-    print(list(idxs))
-    print(list(range(idx_start, idx_end, 5)))
     breakpoint()
     print('End')
+    
 
 
 def generate_all_feats():

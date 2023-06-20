@@ -65,16 +65,29 @@ class ParticleFilter:
 
     def random_particles(self, n: int) -> torch.Tensor:
         torch.manual_seed(0)
+        particles = []
+
+        ## Set 1
         x = torch.randint(0,200, (n,1)) # Random values bw 0 and 50
         # y = torch.randint(-10,10, (n,1)) # Random values bw 0 and 50
         y = torch.randint(-100,100, (n,1)) # Random values bw 0 and 50
         yaw = torch.zeros(n, 1) # Assuming no yaw error
-        particles = []
         
         for i in range(n):
             particle_tf = build_se3_transform([x[i,0], y[i,0], 0, 0, 0, yaw[i,0]])
             particle_tf = torch.tensor(particle_tf)
             particles.append(particle_tf)
+
+        # ## Set 2
+        # x = torch.randint(50,150, (n,1)) # Random values bw 0 and 50
+        # # y = torch.randint(-10,10, (n,1)) # Random values bw 0 and 50
+        # y = torch.randint(-150,150, (n,1)) # Random values bw 0 and 50
+        # yaw = torch.zeros(n, 1) + np.pi/2 # Assuming no yaw error
+        
+        # for i in range(n):
+        #     particle_tf = build_se3_transform([x[i,0], y[i,0], 0, 0, 0, yaw[i,0]])
+        #     particle_tf = torch.tensor(particle_tf)
+        #     particles.append(particle_tf)
         
         particles = torch.stack(particles)
         return particles

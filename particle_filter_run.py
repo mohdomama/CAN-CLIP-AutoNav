@@ -14,8 +14,10 @@ import cv2
 from particle_filter import ParticleFilter
 from functools import partial
 import torch.nn.functional as F
-from information_gain import get_top_K_info_idxs, get_top_K_info_locally
+from information_gain import get_top_K_info_idxs, get_top_K_info_locally, get_top_K_info_nextsim
 from tqdm import tqdm
+import torchvision.transforms as transforms
+
 torch.manual_seed(0)
 
 
@@ -84,8 +86,7 @@ def motion_model_naive(tf_motion, particles):
 def get_features_poses(idx_start, idx_end, k, method='ig'):
 
     if method == 'ig':
-        # idxs = get_top_K_info_idxs(idx_start, idx_end, k=k)
-        idxs = get_top_K_info_locally(idx_start, idx_end, k=k)
+        idxs = get_top_K_info_nextsim(idx_start, idx_end, k=k)
 
     if method == 'equal':
         idxs = np.linspace(idx_start, idx_end-1,k).astype(int)
@@ -121,24 +122,28 @@ def calculate_closest(feats, poses_feat, particles):
     return feats[closest_idx], distances
 
 
+total_sim = 0
+uniqe_weights_method = None
 def observation_model_closest(feats_closest, feats_ref, distances, particles):
+    global total_sim, uniqe_weights_method
     weights = cosine_similarity(feats_closest, feats_ref)
+    total_sim += weights.sum()
     
-    # test = torch.unique(weights.sort()[0])
-    # if test[-1] == 1:
-    #     print('Diff: ', test[-1]-test[-2])
-    #     print('Last Five: ', test[-5:])
-    # weights = weights / 0.3
-    weights = weights / 6
+    test = torch.unique(weights.sort()[0]).detach().cpu().numpy()
+    # print('Diff: ', test[-1]-test[-5])
+    uniqe_weights_method += test[-5:]
 
-    
-    dw = 1/(distances+0.1)
-    dw / 10
-    # dw[distances>40] = 0
-    dweights =  F.softmax(dw, dim=-1, )
-
-    # weights = weights + dweights
-    weights = weights
+    if test[-1]-test[-5] > 0.05:
+        # weights = weights / 6
+        weights = weights / 2
+        dw = 1/(distances+0.1)
+        dw / 10
+        # dw[distances>40] = 0
+        dweights =  F.softmax(dw, dim=-1, )
+        # weights = weights + dweights
+        weights = weights
+    else: 
+        weights = weights * 0 + 1
 
     weights = F.softmax(weights, dim=-1, )
 
@@ -147,16 +152,23 @@ def observation_model_closest(feats_closest, feats_ref, distances, particles):
 
 
 def main():
+    global total_sim, uniqe_weights_method
     br = tf.TransformBroadcaster()
 
-    idx_start, idx_end = 0, 101
-    drift_total = np.zeros((3,2,101))
-    stattest_number = 1
+    idx_start, idx_end = 0, 190
+    k = 20
+    drift_total = np.zeros((3,2,idx_end))
+    stattest_number = 5
+    transform = transforms.ColorJitter(brightness=(0.7),contrast=(0.7),saturation=(0.7))
     for stattest in range(stattest_number):
         print(stattest)
         drift_all = []
+        uniqe_weights_all = []
+        uniqe_weights_method = np.zeros(5)
+
         for method in ['ig', 'equal', 'random']:
-            feats, poses_feat = get_features_poses(idx_start, idx_end,k=20, method=method)
+        # for method in ['equal']:
+            feats, poses_feat = get_features_poses(idx_start, idx_end,k=k, method=method)
             tf_gt_old = build_se3_transform([0,0,0,0,0,0])
             particleFilter = ParticleFilter(600)
 
@@ -178,6 +190,7 @@ def main():
 
                     feats_closest, distances = calculate_closest(feats, poses_feat, particleFilter.particles)
                     img = Image.open(f"{imgs_dir}{str(i).zfill(6)}.png")
+                    # img = transform(img)
                     refimgage = preprocess(img).unsqueeze(0).to(device)
                     feats_ref = model.encode_image(refimgage).cpu().to(torch.float32)
                     
@@ -197,13 +210,21 @@ def main():
                     pose_particles_median.append([np.median(particles_x), np.median(particles_y)])
                     pose_gt.append([tf_gt[0,-1], tf_gt[1,-1]])
 
+            
+            print(f'Total Sim for {method} is : {total_sim}')
+            total_sim = 0 
+            uniqe_weights_all.append(uniqe_weights_method.copy())
+            uniqe_weights_method = np.zeros(5)
             pose_particles_mean = np.array(pose_particles_mean)
             pose_particles_median = np.array(pose_particles_median)
             pose_gt = np.array(pose_gt)
             drift_mean = np.linalg.norm(pose_particles_mean-pose_gt, axis=1)
             drift_median = np.linalg.norm(pose_particles_median-pose_gt, axis=1)
             drift_all.append([drift_mean, drift_median])
-            
+        
+        print('Difference in top5: ', [x[-1] - x[0] for x in uniqe_weights_all])
+        print('Difference in top2: ', [x[-1] - x[-2] for x in uniqe_weights_all])
+        breakpoint()
         drift_all = np.array(drift_all)
         drift_total = drift_total+drift_all
 
@@ -213,7 +234,6 @@ def main():
     plt.plot(drift_total[1][0], 'b')
     plt.plot(drift_total[2][0], 'r')
     plt.show()
-
     # Plotting mean
     plt.plot(drift_total[0][1], 'g')
     plt.plot(drift_total[1][1], 'b')
